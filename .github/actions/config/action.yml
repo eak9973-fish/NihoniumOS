@@ -93,7 +93,7 @@ runs:
         #
         # BUILD PLATFORMS
         #
-        PLATFORMS="linux/amd64"
+        PLATFORMS="amd64"
 
         #
         # SIGNING
