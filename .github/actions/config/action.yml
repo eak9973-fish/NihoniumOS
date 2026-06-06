@@ -1,5 +1,5 @@
----
-name: Set Environment Variables
+name: NihoniumOS
+description: Compute registry/image metadata for builds
 
 inputs:
   SIGNING_SECRET:
@@ -10,62 +10,110 @@ outputs:
   LATEST_TAG:
     description: "The latest tag based on the event type"
     value: ${{ steps.set.outputs.LATEST_TAG }}
+
   REGISTRY:
     description: "The container registry to use"
-    value:  ${{ steps.set.outputs.REGISTRY }}
+    value: ${{ steps.set.outputs.REGISTRY }}
+
   REGISTRY_USER:
     description: "The user for the container registry"
     value: ${{ steps.set.outputs.REGISTRY_USER }}
+
   PLATFORMS:
     description: "The platforms to build for"
     value: ${{ steps.set.outputs.PLATFORMS }}
+
   IMAGE_PATH:
     description: "The path to the image in the registry"
     value: ${{ steps.set.outputs.IMAGE_PATH }}
+
   IMAGE_NAME:
     description: "The name of the image"
     value: ${{ steps.set.outputs.IMAGE_NAME }}
+
   IMAGE_REF:
     description: "The full reference to the image in the registry"
     value: ${{ steps.set.outputs.IMAGE_REF }}
+
   IS_SIGNED:
     description: "Whether the image is signed"
     value: ${{ steps.set.outputs.IS_SIGNED }}
 
 runs:
   using: "composite"
+
   steps:
-    - name: Set environment variables
+    - name: Set NihoniumOS variables
       id: set
       shell: bash
+      env:
+        SIGNING_SECRET: ${{ inputs.SIGNING_SECRET }}
       run: |
-        # Pick a latest tag based on the event type
-        if [[ "${{ github.ref }}" != "refs/heads/${{ github.event.repository.default_branch }}" ]]; then
-          echo "LATEST_TAG=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+        set -euo pipefail
+
+        #
+        # REGISTRY
+        #
+        REGISTRY="ghcr.io"
+
+        #
+        # USER / OWNER
+        #
+        REGISTRY_USER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+
+        #
+        # STATIC IMAGE NAME
+        #
+        IMAGE_NAME="nihoniumos"
+
+        #
+        # IMAGE PATH
+        #
+        IMAGE_PATH="${REGISTRY}/${REGISTRY_USER}/${IMAGE_NAME}"
+
+        #
+        # TAG LOGIC
+        #
+        if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+          LATEST_TAG="pr-${{ github.event.pull_request.number }}"
+        elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+          LATEST_TAG="${GITHUB_REF_NAME}"
+        elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+          LATEST_TAG="latest"
         else
-          echo "LATEST_TAG=latest" >> $GITHUB_OUTPUT
+          SAFE_BRANCH="$(echo "${GITHUB_REF_NAME}" | tr '/' '-')"
+          LATEST_TAG="${SAFE_BRANCH}"
         fi
 
-        REGISTRY=ghcr.io
-        REGISTRY_USER=${{ github.actor }}
-        IMAGE_PATH=${{ github.repository_owner }}
-        IMAGE_NAME=${{ github.event.repository.name }}
-        PLATFORMS="amd64"
+        #
+        # FULL IMAGE REF
+        #
+        IMAGE_REF="${IMAGE_PATH}:${LATEST_TAG}"
 
-        echo "REGISTRY=${REGISTRY}" >> $GITHUB_OUTPUT
-        echo "REGISTRY_USER=${REGISTRY_USER}" >> $GITHUB_OUTPUT
-        echo "IMAGE_PATH=${IMAGE_PATH}" >> $GITHUB_OUTPUT
-        echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_OUTPUT
-        echo "IMAGE_REF=${REGISTRY}/${IMAGE_PATH}/${IMAGE_NAME}" >> $GITHUB_OUTPUT
-        echo "PLATFORMS=${PLATFORMS}" >> $GITHUB_OUTPUT
+        #
+        # BUILD PLATFORMS
+        #
+        PLATFORMS="linux/amd64,linux/arm64"
 
-        # This is a workaround so that the expansion of SIGNING_SECRET doesn't break the if statement
-        SECRET=$(cat <<EOF
-        ${{ inputs.SIGNING_SECRET }}
-        EOF
-        )
-        if [ -z "${SECRET}" ]; then
-          echo "IS_SIGNED=false" >> $GITHUB_OUTPUT
+        #
+        # SIGNING
+        #
+        if [[ -n "${SIGNING_SECRET:-}" ]]; then
+          IS_SIGNED="true"
         else
-          echo "IS_SIGNED=true" >> $GITHUB_OUTPUT
+          IS_SIGNED="false"
         fi
+
+        #
+        # OUTPUTS
+        #
+        {
+          echo "LATEST_TAG=${LATEST_TAG}"
+          echo "REGISTRY=${REGISTRY}"
+          echo "REGISTRY_USER=${REGISTRY_USER}"
+          echo "PLATFORMS=${PLATFORMS}"
+          echo "IMAGE_PATH=${IMAGE_PATH}"
+          echo "IMAGE_NAME=${IMAGE_NAME}"
+          echo "IMAGE_REF=${IMAGE_REF}"
+          echo "IS_SIGNED=${IS_SIGNED}"
+        } >> "$GITHUB_OUTPUT"
